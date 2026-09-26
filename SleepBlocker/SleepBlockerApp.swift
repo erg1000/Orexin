@@ -10,24 +10,45 @@ import SwiftUI
 @main
 struct SleepBlockerApp: App {
     @State private var monitor = SleepAssertionMonitor()
+    @State private var launchAtLogin = LaunchAtLogin()
+    @State private var keepAwake = KeepAwake()
     @AppStorage("includeSystemProcesses") private var includeSystemProcesses = false
 
-    private var relevantBlockers: [SleepBlocker] {
-        includeSystemProcesses ? monitor.blockers : monitor.appBlockers
+    private var status: SleepStatus {
+        if !monitor.appBlockers.isEmpty { return .blockedByApp }
+        if includeSystemProcesses, !monitor.systemBlockers.isEmpty { return .blockedBySystem }
+        return .clear
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(monitor: monitor, includeSystemProcesses: $includeSystemProcesses)
+            MenuContent(
+                monitor: monitor,
+                launchAtLogin: launchAtLogin,
+                keepAwake: keepAwake,
+                includeSystemProcesses: $includeSystemProcesses
+            )
         } label: {
-            Image(nsImage: .statusIcon(isBlocked: !relevantBlockers.isEmpty))
+            Image(nsImage: .statusIcon(for: status))
         }
         .menuBarExtraStyle(.menu)
     }
 }
 
+/// What the menu bar dot shows.
+private enum SleepStatus {
+    /// Nothing relevant is preventing sleep (green).
+    case clear
+    /// Only system processes are preventing sleep (orange).
+    case blockedBySystem
+    /// At least one app is preventing sleep (red).
+    case blockedByApp
+}
+
 private struct MenuContent: View {
     let monitor: SleepAssertionMonitor
+    let launchAtLogin: LaunchAtLogin
+    let keepAwake: KeepAwake
     @Binding var includeSystemProcesses: Bool
 
     var body: some View {
@@ -54,7 +75,21 @@ private struct MenuContent: View {
         }
 
         Divider()
+        Toggle("Keep Mac Awake", isOn: Binding(
+            get: { keepAwake.isEnabled },
+            set: {
+                keepAwake.setEnabled($0)
+                monitor.refresh()
+            }
+        ))
+        .keyboardShortcut("k")
+
+        Divider()
         Toggle("Show System Processes", isOn: $includeSystemProcesses)
+        Toggle("Launch at Login", isOn: Binding(
+            get: { launchAtLogin.isEnabled },
+            set: { launchAtLogin.setEnabled($0) }
+        ))
         Button("Refresh") { monitor.refresh() }
             .keyboardShortcut("r")
         Divider()
@@ -87,15 +122,15 @@ private struct BlockerRow: View {
 }
 
 private extension NSImage {
-    /// Menu bar icon with a colored status dot: red when something prevents sleep, green otherwise.
+    /// Menu bar icon with a colored status dot: red when an app prevents sleep, orange when only
+    /// system processes do, green otherwise.
     ///
     /// The menu bar renders images as monochrome templates, which would strip the dot's color,
     /// so this is a non-template image that draws the symbol in the label color itself.
-    static func statusIcon(isBlocked: Bool) -> NSImage {
-        let symbolName = isBlocked ? "cup.and.saucer.fill" : "moon.zzz"
+    static func statusIcon(for status: SleepStatus) -> NSImage {
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
             .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
-        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+        let symbol = NSImage(systemSymbolName: "moon.zzz", accessibilityDescription: nil)?
             .withSymbolConfiguration(config) ?? NSImage()
 
         let dotDiameter: CGFloat = 7
@@ -108,12 +143,20 @@ private extension NSImage {
                                    width: symbol.size.width, height: symbol.size.height))
             let dotRect = NSRect(x: symbol.size.width + spacing, y: (size.height - dotDiameter) / 2,
                                  width: dotDiameter, height: dotDiameter)
-            (isBlocked ? NSColor.systemRed : NSColor.systemGreen).setFill()
+            switch status {
+            case .clear: NSColor.systemGreen.setFill()
+            case .blockedBySystem: NSColor.systemOrange.setFill()
+            case .blockedByApp: NSColor.systemRed.setFill()
+            }
             NSBezierPath(ovalIn: dotRect).fill()
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = isBlocked ? "Sleep is being prevented" : "Nothing is preventing sleep"
+        image.accessibilityDescription = switch status {
+        case .clear: "Nothing is preventing sleep"
+        case .blockedBySystem: "System processes are preventing sleep"
+        case .blockedByApp: "Apps are preventing sleep"
+        }
         return image
     }
 

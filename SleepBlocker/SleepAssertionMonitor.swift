@@ -79,9 +79,9 @@ final class SleepAssertionMonitor {
 
         let ownPID = ProcessInfo.processInfo.processIdentifier
 
-        // Group assertions by the process they are really for. Daemons such as
-        // runningboardd create assertions on behalf of apps, so attribute those
-        // to the original app.
+        // Group assertions by the app they are really for. Daemons such as coreaudiod
+        // create assertions on behalf of other processes, and those processes are often
+        // helpers (browser renderers, WebKit services), so attribute them to their app.
         var reasonsByPID: [pid_t: [String]] = [:]
         var kindByPID: [pid_t: SleepBlocker.Kind] = [:]
         var fallbackNames: [pid_t: String] = [:]
@@ -105,14 +105,14 @@ final class SleepAssertionMonitor {
                 // into the background. These come and go constantly, so skip them.
                 if name.contains("Shared Background Assertion") { continue }
 
-                let pid = (assertion["AssertionOnBehalfOfPID"] as? NSNumber)?.int32Value
-                    ?? ownerPID.int32Value
-                if pid == ownPID { continue }
+                let onBehalfPID = (assertion["AssertionOnBehalfOfPID"] as? NSNumber)?.int32Value
+                let pid = owningAppPID(for: onBehalfPID ?? ownerPID.int32Value)
 
-                reasonsByPID[pid, default: []].append(name)
+                reasonsByPID[pid, default: []].append(readableReason(for: assertion, name: name))
                 // Display assertions are the "stronger" of the two, keep them if present.
                 if kindByPID[pid] != .display { kindByPID[pid] = kind }
-                if fallbackNames[pid] == nil,
+                // "Process Name" is the assertion owner's name, so it only applies to the owner.
+                if onBehalfPID == nil, fallbackNames[pid] == nil,
                    let processName = assertion["Process Name"] as? String {
                     fallbackNames[pid] = processName
                 }
@@ -129,12 +129,69 @@ final class SleepAssertionMonitor {
                 pid: pid,
                 name: name,
                 bundleIdentifier: app?.bundleIdentifier,
-                isApp: app?.activationPolicy == .regular,
+                // Count our own "Keep Mac Awake" assertion as an app so it shows up and turns the dot red.
+                isApp: app?.activationPolicy == .regular || pid == ownPID,
                 kind: kindByPID[pid] ?? .system,
                 reasons: Array(Set(reasons)).sorted()
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Turns coreaudiod's technical assertion names into something readable.
+    private static func readableReason(for assertion: [String: Any], name: String) -> String {
+        let resources = assertion["ResourcesUsed"] as? [String] ?? []
+        if resources.contains("audio-out") { return "Playing audio" }
+        if resources.contains("audio-in") { return "Recording audio" }
+        return name
+    }
+
+    /// Returns the PID of the app a process belongs to, or the process itself if it isn't part of an app.
+    private static func owningAppPID(for pid: pid_t) -> pid_t {
+        if NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular {
+            return pid
+        }
+        guard let path = executablePath(for: pid) else { return pid }
+
+        // Helpers inside an app bundle, e.g. "Google Chrome.app/…/Google Chrome Helper.app/…".
+        if let range = path.range(of: ".app/") {
+            let bundleURL = URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app")
+                .standardizedFileURL
+            if let app = NSWorkspace.shared.runningApplications.first(where: {
+                $0.activationPolicy == .regular && $0.bundleURL?.standardizedFileURL == bundleURL
+            }) {
+                return app.processIdentifier
+            }
+        }
+
+        // XPC services launched for an app, e.g. Safari's "com.apple.WebKit.GPU.xpc".
+        if path.contains(".xpc/"), let responsible = responsiblePID(for: pid), responsible != pid,
+           NSRunningApplication(processIdentifier: responsible)?.activationPolicy == .regular {
+            return responsible
+        }
+
+        return pid
+    }
+
+    private static func executablePath(for pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    /// The process macOS holds responsible for `pid` (e.g. the app that launched an XPC service).
+    /// This is private API in libsystem, so it's looked up at runtime and may be unavailable.
+    private static let responsibilityFunction: (@convention(c) (pid_t) -> pid_t)? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
+                                 "responsibility_get_pid_responsible_for_pid")
+        else { return nil }
+        return unsafeBitCast(symbol, to: (@convention(c) (pid_t) -> pid_t).self)
+    }()
+
+    private static func responsiblePID(for pid: pid_t) -> pid_t? {
+        guard let function = responsibilityFunction else { return nil }
+        let responsible = function(pid)
+        return responsible > 0 ? responsible : nil
     }
 
     private static func processName(for pid: pid_t) -> String? {
