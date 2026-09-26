@@ -1,6 +1,6 @@
 //
 //  KeepAwake.swift
-//  SleepBlocker
+//  Orexin
 //
 
 import IOKit.pwr_mgt
@@ -11,7 +11,7 @@ import OSLog
 @MainActor
 @Observable
 final class KeepAwake {
-    static let assertionName = "Sleep Blocker: Keep Mac Awake"
+    static let assertionName = "Orexin: Keep Mac Awake"
 
     private var assertionID: IOPMAssertionID?
 

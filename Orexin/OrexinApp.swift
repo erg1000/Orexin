@@ -1,6 +1,6 @@
 //
-//  SleepBlockerApp.swift
-//  SleepBlocker
+//  OrexinApp.swift
+//  Orexin
 //
 //  Created by Ergün Kayis on 26.09.26.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct SleepBlockerApp: App {
+struct OrexinApp: App {
     @State private var monitor = SleepAssertionMonitor()
     @State private var launchAtLogin = LaunchAtLogin()
     @State private var keepAwake = KeepAwake()
@@ -93,7 +93,7 @@ private struct MenuContent: View {
         Button("Refresh") { monitor.refresh() }
             .keyboardShortcut("r")
         Divider()
-        Button("Quit Sleep Blocker") { NSApplication.shared.terminate(nil) }
+        Button("Quit Orexin") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
     }
 }

@@ -1,6 +1,6 @@
 //
 //  LaunchAtLogin.swift
-//  SleepBlocker
+//  Orexin
 //
 
 import Observation

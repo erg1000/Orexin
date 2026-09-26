@@ -1,6 +1,6 @@
 //
 //  SleepAssertionMonitor.swift
-//  SleepBlocker
+//  Orexin
 //
 
 import AppKit
@@ -55,9 +55,17 @@ final class SleepAssertionMonitor {
         "NoDisplaySleepAssertion",
     ]
 
-    /// Assertions that macOS always holds and that are not interesting to the user.
+    /// Assertions that macOS always holds or that only last while the Mac is in use.
     private static let ignoredAssertionNames: Set<String> = [
         "Powerd - Prevent sleep while display is on",
+        // sharingd's short-lived Handoff advertising.
+        "Handoff",
+    ]
+
+    /// Processes whose assertions only last while the Mac is in use, so they never block idle sleep.
+    private static let ignoredProcessNames: Set<String> = [
+        // Handoff: briefly advertises the current activity to nearby devices.
+        "useractivityd",
     ]
 
     init(interval: TimeInterval = 5) {
@@ -101,6 +109,8 @@ final class SleepAssertionMonitor {
 
                 let name = assertion[kIOPMAssertionNameKey] as? String ?? type
                 if ignoredAssertionNames.contains(name) { continue }
+                if let processName = assertion["Process Name"] as? String,
+                   ignoredProcessNames.contains(processName) { continue }
                 // runningboardd grants apps a few seconds to finish work when they go
                 // into the background. These come and go constantly, so skip them.
                 if name.contains("Shared Background Assertion") { continue }

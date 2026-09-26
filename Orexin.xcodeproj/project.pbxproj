@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		99C936EC3067ED6700EAA14B /* SleepBlocker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SleepBlocker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		99C936EC3067ED6700EAA14B /* Orexin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orexin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		99C936EE3067ED6700EAA14B /* SleepBlocker */ = {
+		99C936EE3067ED6700EAA14B /* Orexin */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SleepBlocker;
+			path = Orexin;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +32,7 @@
 		99C936E33067ED6700EAA14B = {
 			isa = PBXGroup;
 			children = (
-				99C936EE3067ED6700EAA14B /* SleepBlocker */,
+				99C936EE3067ED6700EAA14B /* Orexin */,
 				99C936ED3067ED6700EAA14B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +40,7 @@
 		99C936ED3067ED6700EAA14B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				99C936EC3067ED6700EAA14B /* SleepBlocker.app */,
+				99C936EC3067ED6700EAA14B /* Orexin.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		99C936EB3067ED6700EAA14B /* SleepBlocker */ = {
+		99C936EB3067ED6700EAA14B /* Orexin */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 99C936F73067ED6800EAA14B /* Build configuration list for PBXNativeTarget "SleepBlocker" */;
+			buildConfigurationList = 99C936F73067ED6800EAA14B /* Build configuration list for PBXNativeTarget "Orexin" */;
 			buildPhases = (
 				99C936E83067ED6700EAA14B /* Sources */,
 				99C936E93067ED6700EAA14B /* Frameworks */,
@@ -61,13 +61,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				99C936EE3067ED6700EAA14B /* SleepBlocker */,
+				99C936EE3067ED6700EAA14B /* Orexin */,
 			);
-			name = SleepBlocker;
+			name = Orexin;
 			packageProductDependencies = (
 			);
-			productName = SleepBlocker;
-			productReference = 99C936EC3067ED6700EAA14B /* SleepBlocker.app */;
+			productName = Orexin;
+			productReference = 99C936EC3067ED6700EAA14B /* Orexin.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 99C936E73067ED6700EAA14B /* Build configuration list for PBXProject "SleepBlocker" */;
+			buildConfigurationList = 99C936E73067ED6700EAA14B /* Build configuration list for PBXProject "Orexin" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				99C936EB3067ED6700EAA14B /* SleepBlocker */,
+				99C936EB3067ED6700EAA14B /* Orexin */,
 			);
 		};
 /* End PBXProject section */
@@ -314,7 +314,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		99C936E73067ED6700EAA14B /* Build configuration list for PBXProject "SleepBlocker" */ = {
+		99C936E73067ED6700EAA14B /* Build configuration list for PBXProject "Orexin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				99C936F53067ED6800EAA14B /* Debug */,
@@ -323,7 +323,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		99C936F73067ED6800EAA14B /* Build configuration list for PBXNativeTarget "SleepBlocker" */ = {
+		99C936F73067ED6800EAA14B /* Build configuration list for PBXNativeTarget "Orexin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				99C936F83067ED6800EAA14B /* Debug */,
