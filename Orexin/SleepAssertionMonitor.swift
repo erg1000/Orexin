@@ -5,6 +5,7 @@
 
 import AppKit
 import IOKit.pwr_mgt
+import notify
 import Observation
 
 /// A process holding one or more power assertions that keep the Mac awake.
@@ -22,8 +23,15 @@ struct SleepBlocker: Identifiable, Hashable {
     let isApp: Bool
     let kind: Kind
     let reasons: [String]
+    /// When the oldest of this process's assertions was created.
+    let since: Date
 
     var id: pid_t { pid }
+
+    /// Stable identity across process restarts, used for the ignore list and history.
+    var key: String { bundleIdentifier ?? name }
+
+    var isOwnProcess: Bool { pid == ProcessInfo.processInfo.processIdentifier }
 
     var icon: NSImage? {
         NSRunningApplication(processIdentifier: pid)?.icon
@@ -40,7 +48,12 @@ final class SleepAssertionMonitor {
     /// Blockers that are background daemons / system processes.
     var systemBlockers: [SleepBlocker] { blockers.filter { !$0.isApp } }
 
+    /// Called with the new blockers after every refresh.
+    var onUpdate: (([SleepBlocker]) -> Void)?
+
     private var timer: Timer?
+    private var notifyToken = NOTIFY_TOKEN_INVALID
+    private var refreshScheduled = false
 
     /// Assertion types that prevent idle system sleep.
     private static let systemSleepTypes: Set<String> = [
@@ -68,15 +81,54 @@ final class SleepAssertionMonitor {
         "useractivityd",
     ]
 
-    init(interval: TimeInterval = 5) {
+    private static let anyChangeNotification = "com.apple.system.powermanagement.assertions.anychange"
+
+    /// Refreshes whenever power assertions change, plus periodically so that durations and
+    /// long-block alerts stay current. If change notifications aren't available, polls more often.
+    init() {
         refresh()
+
+        let notificationsEnabled = Self.enableAnyChangeNotifications()
+        if notificationsEnabled {
+            notify_register_dispatch(Self.anyChangeNotification, &notifyToken, .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scheduleRefresh() }
+            }
+        }
+
+        let interval: TimeInterval = notificationsEnabled ? 30 : 5
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        timer?.tolerance = interval / 5
+    }
+
+    /// powerd only posts the "any assertion changed" notification to clients that asked for it
+    /// through `IOPMAssertionNotify`, which is private API in IOKit, so it's looked up at runtime.
+    private static func enableAnyChangeNotifications() -> Bool {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "IOPMAssertionNotify") else {
+            return false
+        }
+        typealias AssertionNotify = @convention(c) (UnsafePointer<CChar>, Int32) -> kern_return_t
+        let register: Int32 = 1 // kIOPMNotifyRegister
+        return unsafeBitCast(symbol, to: AssertionNotify.self)(anyChangeNotification, register) == kIOReturnSuccess
     }
 
     func refresh() {
-        blockers = Self.readBlockers()
+        let current = Self.readBlockers()
+        // Avoid redrawing the menu bar when nothing changed; assertion notifications are frequent.
+        if current != blockers { blockers = current }
+        onUpdate?(blockers)
+    }
+
+    /// Assertions change constantly while the Mac is in use (every input event updates one),
+    /// so coalesce notifications into at most one refresh per second.
+    private func scheduleRefresh() {
+        guard !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.refreshScheduled = false
+            self?.refresh()
+        }
     }
 
     private static func readBlockers() -> [SleepBlocker] {
@@ -93,6 +145,7 @@ final class SleepAssertionMonitor {
         var reasonsByPID: [pid_t: [String]] = [:]
         var kindByPID: [pid_t: SleepBlocker.Kind] = [:]
         var fallbackNames: [pid_t: String] = [:]
+        var sinceByPID: [pid_t: Date] = [:]
 
         for (ownerPID, assertions) in byProcess {
             for assertion in assertions {
@@ -121,6 +174,8 @@ final class SleepAssertionMonitor {
                 reasonsByPID[pid, default: []].append(readableReason(for: assertion, name: name))
                 // Display assertions are the "stronger" of the two, keep them if present.
                 if kindByPID[pid] != .display { kindByPID[pid] = kind }
+                let start = assertion["AssertStartWhen"] as? Date ?? .now
+                sinceByPID[pid] = min(sinceByPID[pid] ?? start, start)
                 // "Process Name" is the assertion owner's name, so it only applies to the owner.
                 if onBehalfPID == nil, fallbackNames[pid] == nil,
                    let processName = assertion["Process Name"] as? String {
@@ -142,7 +197,8 @@ final class SleepAssertionMonitor {
                 // Count our own "Keep Mac Awake" assertion as an app so it shows up and turns the dot red.
                 isApp: app?.activationPolicy == .regular || pid == ownPID,
                 kind: kindByPID[pid] ?? .system,
-                reasons: Array(Set(reasons)).sorted()
+                reasons: Array(Set(reasons)).sorted(),
+                since: sinceByPID[pid] ?? .now
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

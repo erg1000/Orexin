@@ -9,88 +9,84 @@ import SwiftUI
 
 @main
 struct OrexinApp: App {
-    @State private var monitor = SleepAssertionMonitor()
-    @State private var launchAtLogin = LaunchAtLogin()
-    @State private var keepAwake = KeepAwake()
-    @AppStorage("includeSystemProcesses") private var includeSystemProcesses = false
-
-    private var status: SleepStatus {
-        if !monitor.appBlockers.isEmpty { return .blockedByApp }
-        if includeSystemProcesses, !monitor.systemBlockers.isEmpty { return .blockedBySystem }
-        return .clear
-    }
+    @State private var model = AppModel()
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(
-                monitor: monitor,
-                launchAtLogin: launchAtLogin,
-                keepAwake: keepAwake,
-                includeSystemProcesses: $includeSystemProcesses
-            )
+            MenuContent(model: model)
         } label: {
-            Image(nsImage: .statusIcon(for: status))
+            Image(nsImage: .statusIcon(for: model.status))
         }
         .menuBarExtraStyle(.menu)
+
+        Window("Sleep History", id: "history") {
+            HistoryView(model: model)
+        }
+        .defaultSize(width: 480, height: 560)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 
-/// What the menu bar dot shows.
-private enum SleepStatus {
-    /// Nothing relevant is preventing sleep (green).
-    case clear
-    /// Only system processes are preventing sleep (orange).
-    case blockedBySystem
-    /// At least one app is preventing sleep (red).
-    case blockedByApp
-}
-
 private struct MenuContent: View {
-    let monitor: SleepAssertionMonitor
-    let launchAtLogin: LaunchAtLogin
-    let keepAwake: KeepAwake
-    @Binding var includeSystemProcesses: Bool
+    @Bindable var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        let apps = monitor.appBlockers
-        let system = monitor.systemBlockers
+        let apps = model.appBlockers
+        let system = model.systemBlockers
+        let ignored = model.ignoredBlockers
 
         if apps.isEmpty {
             Text("No apps are preventing sleep")
         } else {
             Section("Apps preventing sleep") {
-                ForEach(apps) { BlockerRow(blocker: $0) }
+                ForEach(apps) { BlockerRow(blocker: $0, model: model) }
             }
         }
 
-        if includeSystemProcesses {
+        if model.includeSystemProcesses {
             Divider()
             if system.isEmpty {
                 Text("No system processes are preventing sleep")
             } else {
                 Section("System processes") {
-                    ForEach(system) { BlockerRow(blocker: $0) }
+                    ForEach(system) { BlockerRow(blocker: $0, model: model) }
+                }
+            }
+        }
+
+        if !ignored.isEmpty {
+            Divider()
+            Menu("Ignored (\(ignored.count))") {
+                ForEach(ignored) { blocker in
+                    Button("Stop Ignoring \(blocker.name)") { model.stopIgnoring(blocker) }
                 }
             }
         }
 
         Divider()
-        Toggle("Keep Mac Awake", isOn: Binding(
-            get: { keepAwake.isEnabled },
-            set: {
-                keepAwake.setEnabled($0)
-                monitor.refresh()
-            }
-        ))
-        .keyboardShortcut("k")
+        KeepAwakeMenu(keepAwake: model.keepAwake)
+        Button("Sleep History…") {
+            openWindow(id: "history")
+            NSApp.activate()
+        }
+        .keyboardShortcut("y")
 
         Divider()
-        Toggle("Show System Processes", isOn: $includeSystemProcesses)
+        Picker("Notify When Blocked For", selection: $model.alertMinutes) {
+            Text("Off").tag(0)
+            Divider()
+            Text("15 Minutes").tag(15)
+            Text("30 Minutes").tag(30)
+            Text("1 Hour").tag(60)
+            Text("2 Hours").tag(120)
+        }
+        Toggle("Show System Processes", isOn: $model.includeSystemProcesses)
         Toggle("Launch at Login", isOn: Binding(
-            get: { launchAtLogin.isEnabled },
-            set: { launchAtLogin.setEnabled($0) }
+            get: { model.launchAtLogin.isEnabled },
+            set: { model.launchAtLogin.setEnabled($0) }
         ))
-        Button("Refresh") { monitor.refresh() }
+        Button("Refresh") { model.monitor.refresh() }
             .keyboardShortcut("r")
         Divider()
         Button("Quit Orexin") { NSApplication.shared.terminate(nil) }
@@ -98,25 +94,66 @@ private struct MenuContent: View {
     }
 }
 
+private struct KeepAwakeMenu: View {
+    let keepAwake: KeepAwake
+
+    private static let durations: [(title: String, minutes: Int)] = [
+        ("15 Minutes", 15), ("30 Minutes", 30), ("1 Hour", 60), ("2 Hours", 120), ("5 Hours", 300),
+    ]
+
+    private var title: String {
+        guard keepAwake.isEnabled else { return "Keep Mac Awake" }
+        guard let endDate = keepAwake.endDate else { return "Keep Mac Awake: On" }
+        return "Keep Mac Awake: Until \(endDate.formatted(date: .omitted, time: .shortened))"
+    }
+
+    var body: some View {
+        Menu(title) {
+            if keepAwake.isEnabled {
+                Button("Turn Off") { keepAwake.disable() }
+                    .keyboardShortcut("k")
+                Divider()
+            }
+            Button("Until Turned Off") { keepAwake.enable() }
+            Section("For") {
+                ForEach(Self.durations, id: \.minutes) { duration in
+                    Button(duration.title) { keepAwake.enable(for: TimeInterval(duration.minutes * 60)) }
+                }
+            }
+        }
+    }
+}
+
 private struct BlockerRow: View {
     let blocker: SleepBlocker
+    let model: AppModel
+
+    private var subtitle: String {
+        let kind = blocker.kind == .display ? "Keeps display awake" : "Keeps system awake"
+        return "\(kind) · \(formatDuration(Date.now.timeIntervalSince(blocker.since)))"
+    }
 
     var body: some View {
         Menu {
             ForEach(blocker.reasons, id: \.self) { Text($0) }
-            Divider()
+            Text("Since \(blocker.since.formatted(date: .omitted, time: .shortened))")
             Text("PID \(blocker.pid)")
-            if blocker.isApp {
-                Button("Show App") {
+            Divider()
+            if blocker.isApp, !blocker.isOwnProcess {
+                Button("Show \(blocker.name)") {
                     NSRunningApplication(processIdentifier: blocker.pid)?.activate()
                 }
+                Button("Quit \(blocker.name)") { model.quit(blocker) }
+            }
+            if !blocker.isOwnProcess {
+                Button("Ignore \(blocker.name)") { model.ignore(blocker) }
             }
         } label: {
             if let icon = blocker.icon {
                 Image(nsImage: icon.resized(to: 16))
             }
             Text(blocker.name)
-            Text(blocker.kind == .display ? "Keeps display awake" : "Keeps system awake")
+            Text(subtitle)
         }
     }
 }
