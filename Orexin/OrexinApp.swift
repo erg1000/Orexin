@@ -158,26 +158,24 @@ private struct BlockerRow: View {
 }
 
 private extension NSImage {
-    /// Menu bar icon with a colored status dot: red when an app prevents sleep, orange when only
-    /// system processes do, green otherwise.
+    /// Menu bar icon: the moon face from the app icon plus a colored status dot. The moon's eyes
+    /// are open (and the dot red or orange) while something keeps the Mac awake, and closed
+    /// (with a green dot) when it's free to sleep.
     ///
     /// The menu bar renders images as monochrome templates, which would strip the dot's color,
-    /// so this is a non-template image that draws the symbol in the label color itself.
+    /// so this is a non-template image that draws the moon in the label color itself.
     static func statusIcon(for status: SleepStatus) -> NSImage {
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
-        let symbol = NSImage(systemSymbolName: "moon.zzz", accessibilityDescription: nil)?
-            .withSymbolConfiguration(config) ?? NSImage()
-
+        let moonSide: CGFloat = 16
         let dotDiameter: CGFloat = 7
         let spacing: CGFloat = 3
-        let size = NSSize(width: symbol.size.width + spacing + dotDiameter,
-                          height: max(symbol.size.height, dotDiameter))
+        let size = NSSize(width: moonSide + spacing + dotDiameter, height: moonSide)
 
         let image = NSImage(size: size, flipped: false) { _ in
-            symbol.draw(in: NSRect(x: 0, y: (size.height - symbol.size.height) / 2,
-                                   width: symbol.size.width, height: symbol.size.height))
-            let dotRect = NSRect(x: symbol.size.width + spacing, y: (size.height - dotDiameter) / 2,
+            NSColor.labelColor.setFill()
+            moonFace(in: NSRect(x: 0, y: 0, width: moonSide, height: moonSide),
+                     eyesOpen: status != .clear).fill()
+
+            let dotRect = NSRect(x: moonSide + spacing, y: (size.height - dotDiameter) / 2,
                                  width: dotDiameter, height: dotDiameter)
             switch status {
             case .clear: NSColor.systemGreen.setFill()
@@ -194,6 +192,48 @@ private extension NSImage {
         case .blockedByApp: "Apps are preventing sleep"
         }
         return image
+    }
+
+    /// A filled circle with the two eyes cut out (even-odd fill), simplified from the app icon.
+    private static func moonFace(in rect: NSRect, eyesOpen: Bool) -> NSBezierPath {
+        let path = NSBezierPath(ovalIn: rect)
+        path.windingRule = .evenOdd
+
+        let radius = rect.width / 2
+        // Eye centers and sizes relative to the moon's radius; larger than in the app icon so
+        // they stay readable at menu bar size.
+        let eyes: [(dx: CGFloat, dy: CGFloat, width: CGFloat, height: CGFloat)] = [
+            (-0.28, 0.17, 0.48, 0.60),
+            (0.28, 0.24, 0.45, 0.57),
+        ]
+        for eye in eyes {
+            let center = NSPoint(x: rect.midX + eye.dx * radius, y: rect.midY + eye.dy * radius)
+            let width = eye.width * radius
+
+            if eyesOpen {
+                let height = eye.height * radius
+                path.append(NSBezierPath(ovalIn: NSRect(x: center.x - width / 2, y: center.y - height / 2,
+                                                        width: width, height: height)))
+            } else {
+                // Closed eye: a thick downward-curved lid, like "︶".
+                let lidWidth = width * 0.95
+                let thickness = max(rect.width * 0.13, 1.6)
+                let sag = lidWidth * 0.45
+                let left = NSPoint(x: center.x - lidWidth / 2, y: center.y)
+                let right = NSPoint(x: center.x + lidWidth / 2, y: center.y)
+                let lid = NSBezierPath()
+                lid.move(to: left)
+                lid.curve(to: right,
+                          controlPoint1: NSPoint(x: left.x + lidWidth * 0.2, y: center.y - sag),
+                          controlPoint2: NSPoint(x: right.x - lidWidth * 0.2, y: center.y - sag))
+                lid.curve(to: left,
+                          controlPoint1: NSPoint(x: right.x - lidWidth * 0.2, y: center.y - sag + thickness * 1.6),
+                          controlPoint2: NSPoint(x: left.x + lidWidth * 0.2, y: center.y - sag + thickness * 1.6))
+                lid.close()
+                path.append(lid)
+            }
+        }
+        return path
     }
 
     func resized(to side: CGFloat) -> NSImage {
