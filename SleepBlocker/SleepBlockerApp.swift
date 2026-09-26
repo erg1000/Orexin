@@ -20,14 +20,7 @@ struct SleepBlockerApp: App {
         MenuBarExtra {
             MenuContent(monitor: monitor, includeSystemProcesses: $includeSystemProcesses)
         } label: {
-            if relevantBlockers.isEmpty {
-                Image(systemName: "moon.zzz")
-            } else {
-                HStack(spacing: 2) {
-                    Image(systemName: "cup.and.saucer.fill")
-                    Text("\(relevantBlockers.count)")
-                }
-            }
+            Image(nsImage: .statusIcon(isBlocked: !relevantBlockers.isEmpty))
         }
         .menuBarExtraStyle(.menu)
     }
@@ -94,6 +87,36 @@ private struct BlockerRow: View {
 }
 
 private extension NSImage {
+    /// Menu bar icon with a colored status dot: red when something prevents sleep, green otherwise.
+    ///
+    /// The menu bar renders images as monochrome templates, which would strip the dot's color,
+    /// so this is a non-template image that draws the symbol in the label color itself.
+    static func statusIcon(isBlocked: Bool) -> NSImage {
+        let symbolName = isBlocked ? "cup.and.saucer.fill" : "moon.zzz"
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) ?? NSImage()
+
+        let dotDiameter: CGFloat = 7
+        let spacing: CGFloat = 3
+        let size = NSSize(width: symbol.size.width + spacing + dotDiameter,
+                          height: max(symbol.size.height, dotDiameter))
+
+        let image = NSImage(size: size, flipped: false) { _ in
+            symbol.draw(in: NSRect(x: 0, y: (size.height - symbol.size.height) / 2,
+                                   width: symbol.size.width, height: symbol.size.height))
+            let dotRect = NSRect(x: symbol.size.width + spacing, y: (size.height - dotDiameter) / 2,
+                                 width: dotDiameter, height: dotDiameter)
+            (isBlocked ? NSColor.systemRed : NSColor.systemGreen).setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = isBlocked ? "Sleep is being prevented" : "Nothing is preventing sleep"
+        return image
+    }
+
     func resized(to side: CGFloat) -> NSImage {
         let copy = self.copy() as! NSImage
         copy.size = NSSize(width: side, height: side)
