@@ -5,7 +5,6 @@
 
 import AppKit
 import IOKit.pwr_mgt
-import notify
 import Observation
 
 /// A process holding one or more power assertions that keep the Mac awake.
@@ -52,8 +51,6 @@ final class SleepAssertionMonitor {
     var onUpdate: (([SleepBlocker]) -> Void)?
 
     private var timer: Timer?
-    private var notifyToken = NOTIFY_TOKEN_INVALID
-    private var refreshScheduled = false
 
     /// Assertion types that prevent idle system sleep.
     private static let systemSleepTypes: Set<String> = [
@@ -81,54 +78,24 @@ final class SleepAssertionMonitor {
         "useractivityd",
     ]
 
-    private static let anyChangeNotification = "com.apple.system.powermanagement.assertions.anychange"
+    /// Name shown for WebKit's shared services (used by Safari, Mail and other apps), which
+    /// can't be traced back to the app that uses them with public API.
+    static let webContentName = "Web Content (Safari etc.)"
 
-    /// Refreshes whenever power assertions change, plus periodically so that durations and
-    /// long-block alerts stay current. If change notifications aren't available, polls more often.
-    init() {
+    /// Polls, since macOS has no public notification for power assertion changes.
+    init(interval: TimeInterval = 3) {
         refresh()
-
-        let notificationsEnabled = Self.enableAnyChangeNotifications()
-        if notificationsEnabled {
-            notify_register_dispatch(Self.anyChangeNotification, &notifyToken, .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.scheduleRefresh() }
-            }
-        }
-
-        let interval: TimeInterval = notificationsEnabled ? 30 : 5
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
-        timer?.tolerance = interval / 5
-    }
-
-    /// powerd only posts the "any assertion changed" notification to clients that asked for it
-    /// through `IOPMAssertionNotify`, which is private API in IOKit, so it's looked up at runtime.
-    private static func enableAnyChangeNotifications() -> Bool {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "IOPMAssertionNotify") else {
-            return false
-        }
-        typealias AssertionNotify = @convention(c) (UnsafePointer<CChar>, Int32) -> kern_return_t
-        let register: Int32 = 1 // kIOPMNotifyRegister
-        return unsafeBitCast(symbol, to: AssertionNotify.self)(anyChangeNotification, register) == kIOReturnSuccess
+        timer?.tolerance = interval / 3
     }
 
     func refresh() {
         let current = Self.readBlockers()
-        // Avoid redrawing the menu bar when nothing changed; assertion notifications are frequent.
+        // Avoid redrawing the menu bar when nothing changed.
         if current != blockers { blockers = current }
         onUpdate?(blockers)
-    }
-
-    /// Assertions change constantly while the Mac is in use (every input event updates one),
-    /// so coalesce notifications into at most one refresh per second.
-    private func scheduleRefresh() {
-        guard !refreshScheduled else { return }
-        refreshScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.refreshScheduled = false
-            self?.refresh()
-        }
     }
 
     private static func readBlockers() -> [SleepBlocker] {
@@ -141,7 +108,7 @@ final class SleepAssertionMonitor {
 
         // Group assertions by the app they are really for. Daemons such as coreaudiod
         // create assertions on behalf of other processes, and those processes are often
-        // helpers (browser renderers, WebKit services), so attribute them to their app.
+        // helpers (e.g. browser renderers), so attribute them to their app.
         var reasonsByPID: [pid_t: [String]] = [:]
         var kindByPID: [pid_t: SleepBlocker.Kind] = [:]
         var fallbackNames: [pid_t: String] = [:]
@@ -186,7 +153,9 @@ final class SleepAssertionMonitor {
 
         return reasonsByPID.map { pid, reasons in
             let app = NSRunningApplication(processIdentifier: pid)
+            let isWebContent = app == nil && executablePath(for: pid)?.contains("/WebKit.framework/") == true
             let name = app?.localizedName
+                ?? (isWebContent ? webContentName : nil)
                 ?? fallbackNames[pid]
                 ?? processName(for: pid)
                 ?? "PID \(pid)"
@@ -194,8 +163,9 @@ final class SleepAssertionMonitor {
                 pid: pid,
                 name: name,
                 bundleIdentifier: app?.bundleIdentifier,
-                // Count our own "Keep Mac Awake" assertion as an app so it shows up and turns the dot red.
-                isApp: app?.activationPolicy == .regular || pid == ownPID,
+                // Count our own "Keep Mac Awake" assertion and web content (e.g. a Safari tab
+                // playing audio) as apps so they show up and turn the dot red.
+                isApp: app?.activationPolicy == .regular || pid == ownPID || isWebContent,
                 kind: kindByPID[pid] ?? .system,
                 reasons: Array(Set(reasons)).sorted(),
                 since: sinceByPID[pid] ?? .now
@@ -230,12 +200,6 @@ final class SleepAssertionMonitor {
             }
         }
 
-        // XPC services launched for an app, e.g. Safari's "com.apple.WebKit.GPU.xpc".
-        if path.contains(".xpc/"), let responsible = responsiblePID(for: pid), responsible != pid,
-           NSRunningApplication(processIdentifier: responsible)?.activationPolicy == .regular {
-            return responsible
-        }
-
         return pid
     }
 
@@ -243,21 +207,6 @@ final class SleepAssertionMonitor {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         return String(cString: buffer)
-    }
-
-    /// The process macOS holds responsible for `pid` (e.g. the app that launched an XPC service).
-    /// This is private API in libsystem, so it's looked up at runtime and may be unavailable.
-    private static let responsibilityFunction: (@convention(c) (pid_t) -> pid_t)? = {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
-                                 "responsibility_get_pid_responsible_for_pid")
-        else { return nil }
-        return unsafeBitCast(symbol, to: (@convention(c) (pid_t) -> pid_t).self)
-    }()
-
-    private static func responsiblePID(for pid: pid_t) -> pid_t? {
-        guard let function = responsibilityFunction else { return nil }
-        let responsible = function(pid)
-        return responsible > 0 ? responsible : nil
     }
 
     private static func processName(for pid: pid_t) -> String? {

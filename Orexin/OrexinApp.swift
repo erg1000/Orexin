@@ -139,11 +139,10 @@ private struct BlockerRow: View {
             Text("Since \(blocker.since.formatted(date: .omitted, time: .shortened))")
             Text("PID \(blocker.pid)")
             Divider()
-            if blocker.isApp, !blocker.isOwnProcess {
+            if blocker.bundleIdentifier != nil, !blocker.isOwnProcess {
                 Button("Show \(blocker.name)") {
                     NSRunningApplication(processIdentifier: blocker.pid)?.activate()
                 }
-                Button("Quit \(blocker.name)") { model.quit(blocker) }
             }
             if !blocker.isOwnProcess {
                 Button("Ignore \(blocker.name)") { model.ignore(blocker) }

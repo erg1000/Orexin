@@ -78,11 +78,6 @@ final class AppModel {
         ignoredKeys.remove(blocker.key)
     }
 
-    /// Asks the blocking app to quit, like choosing Quit from its menu.
-    func quit(_ blocker: SleepBlocker) {
-        NSRunningApplication(processIdentifier: blocker.pid)?.terminate()
-    }
-
     private func handleUpdate(_ blockers: [SleepBlocker]) {
         history.record(blockers)
 
