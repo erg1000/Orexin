@@ -16,6 +16,36 @@ It's named after [orexin](https://en.wikipedia.org/wiki/Orexin), the neuropeptid
   <img src="Design/MenuBarStates.png" width="390" alt="Menu bar icon: open eyes with a red dot, open eyes with an orange dot, closed eyes with a green dot">
 </p>
 
+## Installation
+
+1. **Download** `Orexin-1.0.dmg` from the [latest release](https://github.com/erg1000/Orexin/releases/latest).
+2. **Open the DMG** and drag **Orexin** onto the **Applications** folder.
+3. **Open Orexin** from your Applications folder. macOS will say *"Orexin" Not Opened* because the app isn't notarized by Apple (see [why](#why-does-macos-warn-about-orexin)). Click **Done**.
+4. **Allow it once:** open **System Settings → Privacy & Security**, scroll down to the *Security* section, and click **Open Anyway** next to *"Orexin" was blocked…*. Confirm with your password or Touch ID, then click **Open Anyway** again.
+5. **Look at the top right of your screen.** Orexin lives in the menu bar as a small moon 🌝. It has no window and no Dock icon, so nothing else appears when it starts.
+6. Optional: click the moon and turn on **Launch at Login** so it starts automatically.
+
+> **Can't see the moon?** On MacBooks with a notch, menu bar icons can hide behind it when the menu bar is full. Quit a few other menu bar apps, or hold ⌘ and drag other icons to make room.
+
+<details>
+<summary>Prefer the Terminal?</summary>
+
+Instead of steps 3–4, remove the download quarantine and open the app:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Orexin.app
+open /Applications/Orexin.app
+```
+</details>
+
+### Why does macOS warn about Orexin?
+
+Apple only lets apps open without a warning if they're signed with a paid Apple Developer ID and notarized. Orexin is a free, open-source project and isn't notarized (yet), so macOS asks you to confirm once. The full source is in this repository, and you can [build it yourself](#building-from-source) instead.
+
+### Uninstalling
+
+Quit Orexin (click the moon → **Quit Orexin**), turn off **Launch at Login** first if you enabled it, and move `Orexin.app` from Applications to the Trash. To also remove its settings and history, delete `~/Library/Containers/actionkraft.Orexin`.
+
 ## Features
 
 - **Status at a glance.** The moon's eyes are open while something keeps your Mac awake and closed when it's free to sleep. The dot shows who's responsible:
@@ -34,16 +64,19 @@ Noise is filtered out: macOS's own "stay awake while the display is on" assertio
 
 ## Requirements
 
-- macOS 26.5 or later
-- Xcode 26.5 or later to build
+- macOS 26.5 or later, on Apple silicon or Intel
 
-## Building
+## Building from source
+
+Requires Xcode 26.5 or later.
 
 1. Clone the repository and open `Orexin.xcodeproj` in Xcode.
 2. Select your own team under *Signing & Capabilities* (and change the bundle identifier if needed).
 3. Press ⌘R. Orexin appears in the menu bar; there's no window or Dock icon.
 
-To install it, archive the app (Product → Archive → Distribute App → Custom → Copy App) and move `Orexin.app` to `/Applications`. Launch at Login only works from there.
+To install your build, archive the app (Product → Archive → Distribute App → Custom → Copy App) and move `Orexin.app` to `/Applications`. Launch at Login only works from there.
+
+To create the downloadable DMG for a release, run `scripts/make-release.sh`. It builds a universal app and writes `build/Orexin-<version>.dmg`.
 
 ## How it works
 
